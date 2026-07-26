@@ -3,6 +3,7 @@
 ## Implemented
 
 - [x] Streamlit interface with inspection, planning, verification, and history screens
+- [x] FastAPI backend with health, inspection, history, JSON export, and route endpoints
 - [x] Image and short-video upload handling
 - [x] Stable model adapter for `models/road_damage.pt`
 - [x] Transparent demo fallback when weights are unavailable
@@ -11,7 +12,7 @@
 - [x] DBSCAN duplicate-location clustering
 - [x] Road Health Index and estimated maintenance budget
 - [x] Geotagged defect map
-- [x] Priority-aware repair route with depot return
+- [x] NetworkX priority-aware repair route with depot return
 - [x] Before/after repair-verification policy
 - [x] SQLite inspection and verification persistence
 - [x] Inspection and history CSV exports

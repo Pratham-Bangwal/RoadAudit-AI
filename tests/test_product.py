@@ -3,6 +3,8 @@ import unittest
 from utils.analytics import build_summary, enrich_detections, remove_duplicates, severity_from_bbox
 from utils.route_planner import plan_route
 from utils.verification import compare_inspections
+from backend.api import app
+from fastapi.testclient import TestClient
 
 
 class ProductLogicTests(unittest.TestCase):
@@ -46,6 +48,12 @@ class ProductLogicTests(unittest.TestCase):
         after_summary = build_summary([])
         result = compare_inspections(before, before_summary, [], after_summary)
         self.assertEqual(result["status"], "Repair likely completed")
+
+    def test_fastapi_health_and_json_contract(self):
+        client = TestClient(app)
+        response = client.get("/health")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], "ok")
 
 
 if __name__ == "__main__":

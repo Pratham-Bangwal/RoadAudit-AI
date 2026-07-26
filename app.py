@@ -1,8 +1,10 @@
 from pathlib import Path
 import tempfile
+import os
 
 import pandas as pd
 import plotly.express as px
+import requests
 import streamlit as st
 
 from ai.detector import inspect_media
@@ -15,6 +17,7 @@ from utils.verification import compare_inspections
 ROOT = Path(__file__).parent
 UPLOADS = ROOT / "uploads"
 UPLOADS.mkdir(exist_ok=True)
+API_URL = os.getenv("ROAD_AUDIT_API_URL", "http://127.0.0.1:8000")
 st.set_page_config(page_title="RoadAudit AI", page_icon="RA", layout="wide")
 initialize_database()
 
@@ -27,12 +30,25 @@ def severity_color(severity):
     return {"Critical":"#dc2626", "Severe":"#f97316", "Moderate":"#eab308", "Minor":"#16a34a"}.get(severity,"#64748b")
 
 def run_inspection(uploaded_file, traffic, road_type):
-    path = save_upload(uploaded_file)
-    raw, annotated, mode = inspect_media(path)
-    defects = remove_duplicates(enrich_detections(raw, traffic, road_type))
-    summary = build_summary(defects)
-    inspection_id = create_inspection(uploaded_file.name, path.suffix.lower() in {".mp4", ".avi", ".mov"}, mode, traffic, road_type, defects, summary)
-    return inspection_id, defects, summary, annotated, mode
+    payload = uploaded_file.getvalue()
+    try:
+        response = requests.post(
+            f"{API_URL}/api/inspect",
+            files={"file": (uploaded_file.name, payload, uploaded_file.type or "application/octet-stream")},
+            data={"traffic_level": traffic, "road_type": road_type},
+            timeout=180,
+        )
+        response.raise_for_status()
+        result = response.json()
+        return result["inspection_id"], result["defects"], result["summary"], Path(result["annotated_path"]), result["model_mode"]
+    except requests.RequestException:
+        # Local fallback keeps a one-process demo usable; run_app.ps1 enables the full API architecture.
+        path = save_upload(uploaded_file)
+        raw, annotated, mode = inspect_media(path)
+        defects = remove_duplicates(enrich_detections(raw, traffic, road_type))
+        summary = build_summary(defects)
+        inspection_id = create_inspection(uploaded_file.name, path.suffix.lower() in {".mp4", ".avi", ".mov"}, mode, traffic, road_type, defects, summary)
+        return inspection_id, defects, summary, annotated, f"{mode} (local fallback)"
 
 def latest_inspection():
     records = list_inspections()
@@ -45,6 +61,11 @@ with st.sidebar:
     road_type = st.selectbox("Road importance", ["Hospital / emergency route", "Main road", "Local road"], index=1)
     traffic_level = st.slider("Traffic level (prototype estimate)", 0, 100, 70)
     st.caption("GPS, traffic and road importance are prototype assumptions. Add `models/road_damage.pt` to switch to live YOLO inference.")
+    try:
+        api_online = requests.get(f"{API_URL}/health", timeout=1).ok
+    except requests.RequestException:
+        api_online = False
+    st.success("FastAPI backend connected") if api_online else st.warning("FastAPI offline; local pipeline active")
 
 inspect_tab, plan_tab, verify_tab, history_tab = st.tabs(["1. Inspect road", "2. Maintenance plan", "3. Verify repair", "4. History"])
 with inspect_tab:
@@ -100,6 +121,7 @@ with plan_tab:
         route=st.session_state.get("route")
         if route:
             a,b,c=st.columns(3); a.metric("Scheduled repairs",len(route["stops"])); b.metric("Route length",f"{route['distance_km']:.2f} km"); c.metric("Priority coverage",f"{route['priority_coverage']:.0f}%")
+            st.caption(route.get("algorithm", "Route approximation"))
             route_df=pd.DataFrame([{ "Stop":i+1,"Defect":x["id"],"Damage":x["damage_type"],"Severity":x["severity"],"Priority":f"{x['priority_score']:.0f}/100"} for i,x in enumerate(route["stops"])])
             st.dataframe(route_df,use_container_width=True,hide_index=True); st.components.v1.html(build_route_map(route)._repr_html_(),height=460)
 with verify_tab:

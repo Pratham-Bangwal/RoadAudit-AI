@@ -15,10 +15,10 @@ From `D:\RoadAuditAi`:
 
 ```powershell
 python -m pip install -r requirements.txt
-streamlit run app.py
+powershell -ExecutionPolicy Bypass -File .\run_app.ps1
 ```
 
-Streamlit will show a local URL, usually `http://localhost:8501`.
+This launches FastAPI on `http://127.0.0.1:8000` and Streamlit on `http://localhost:8501`. Interactive API documentation is available at `http://127.0.0.1:8000/docs`.
 
 ## Model hand-off
 
@@ -35,7 +35,7 @@ No application changes are needed. The model should expose road-damage classes; 
 | Module | What it demonstrates |
 | --- | --- |
 | Inspect road | Upload, inference, annotated evidence, severity, priorities, Road Health Index |
-| Maintenance plan | Priority-aware nearest-neighbour repair route and map |
+| Maintenance plan | Priority-aware NetworkX greedy-TSP repair route and map |
 | Verify repair | Before/after visual-risk comparison with an explainable status |
 | History | SQLite-backed inspection register and CSV export |
 
@@ -49,9 +49,10 @@ No application changes are needed. The model should expose road-damage classes; 
 
 ```text
 app.py                  Streamlit product interface
+backend/api.py          FastAPI and explicit JSON API contract
 ai/detector.py          YOLO adapter and temporary demo fallback
 utils/analytics.py      Severity, priority, RHI, DBSCAN deduplication
-utils/route_planner.py  Repair-route approximation
+utils/route_planner.py  NetworkX repair-route approximation
 utils/verification.py   Before/after comparison policy
 utils/storage.py        SQLite persistence
 database/               Created automatically on first run
