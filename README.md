@@ -1,15 +1,37 @@
 # RoadAudit AI
 
-RoadAudit AI turns road imagery into an explainable maintenance workflow:
+RoadAudit AI is an AI-powered road asset intelligence platform that connects road-damage detection to maintenance decisions, crew routing, and repair accountability.
 
-1. Detect visible road damage from image or video evidence.
-2. Estimate image-based severity and assign a repair priority.
-3. Merge repeated nearby detections using DBSCAN clustering.
-4. Generate a crew repair route and show it on a map.
-5. Compare before/after evidence to support repair verification.
-6. Persist inspections in SQLite and export the registers as CSV.
+## What the MVP demonstrates
 
-## Run the MVP
+- Image and multi-frame video inspection through an Ultralytics YOLO adapter
+- Resolution-independent, image-based severity estimation
+- Type-safe GPS deduplication using haversine DBSCAN clustering
+- Explainable repair priority scoring with repeat-observation evidence
+- Road Health Index, repair budget estimate, charts, and Folium maps
+- Priority-aware closed repair routes using NetworkX
+- Before/after repair-verification records
+- FastAPI JSON services, SQLite persistence, and Streamlit operations dashboard
+- Guided demo evidence included under `assets/demo_road.png`
+- Light and dark dashboard themes
+
+## Architecture
+
+```text
+Streamlit Dashboard
+        |
+        v
+FastAPI JSON API ------------- SQLite Evidence Store
+        |
+        v
+YOLO Adapter -> Severity -> DBSCAN -> Priority Engine
+                                      |
+                         +------------+-------------+
+                         v                          v
+                 NetworkX Routing          Repair Verification
+```
+
+## Run locally
 
 From `D:\RoadAuditAi`:
 
@@ -18,54 +40,67 @@ python -m pip install -r requirements.txt
 powershell -ExecutionPolicy Bypass -File .\run_app.ps1
 ```
 
-This launches FastAPI on `http://127.0.0.1:8000` and Streamlit on `http://localhost:8501`. Interactive API documentation is available at `http://127.0.0.1:8000/docs`.
+- Dashboard: `http://localhost:8501`
+- FastAPI documentation: `http://127.0.0.1:8000/docs`
+- FastAPI health: `http://127.0.0.1:8000/health`
 
-## Model hand-off
+The launcher safely reuses an existing API process or starts one and waits until it is healthy before opening Streamlit.
 
-The application runs in a clearly labelled demo fallback until model weights are available. To enable the real model, place the trained Ultralytics weights here:
+## Guided demo
+
+Open **Inspect Road** and select **Run guided sample inspection**. This uses a bundled, license-safe road image and the visibly labelled demo adapter when trained weights are unavailable.
+
+## Enable trained YOLO inference
+
+Place the teammate's trained Ultralytics model here:
 
 ```text
 models/road_damage.pt
 ```
 
-No application changes are needed. The model should expose road-damage classes; names containing `pothole`, `alligator`, `transverse`, or `longitudinal` are displayed directly.
+No code changes are required. Image inference runs immediately; video inference samples up to 24 frames and deduplicates repeated observations.
 
-## Product modules
+## Priority methodology
 
-| Module | What it demonstrates |
-| --- | --- |
-| Inspect road | Upload, inference, annotated evidence, severity, priorities, Road Health Index |
-| Maintenance plan | Priority-aware NetworkX greedy-TSP repair route and map |
-| Verify repair | Before/after visual-risk comparison with an explainable status |
-| History | SQLite-backed inspection register and CSV export |
+```text
+Priority = 45% severity
+         + 25% road importance
+         + 20% traffic level
+         + 10% model confidence
+         + capped repeat-observation bonus
+```
 
-## Prototype assumptions
+The dashboard exposes these factors for the highest-ranked repair. Severity is an image-space estimate, not a pothole-depth or engineering measurement.
 
-- GPS locations, road importance, and traffic are simulated for the hackathon MVP and disclosed in the UI.
-- Severity is an image-space estimate; it does not measure pothole depth or engineering dimensions.
-- Repair verification is a visual evidence aid. Critical repairs must be field-verified before sign-off.
+## Run validation
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\run_checks.ps1
+```
+
+The checks compile the application, run unit/API/integration tests, and execute a Streamlit rendering smoke test. GitHub Actions repeats the portable checks on every push and pull request.
+
+## Prototype disclosures
+
+- GPS positions, traffic, road importance, and costs are simulated planning inputs.
+- Visual repair verification supports review; it does not replace engineering sign-off.
+- The fallback adapter is labelled in the UI and must not be presented as trained-model output.
 
 ## Demo video
 
-The generated 79-second narrated walkthrough is saved at:
-
-```text
-outputs/RoadAudit_AI_Demo_Video.mp4
-```
-
-Rebuild it after editing `docs/demo_narration.txt` by generating the narration WAV and running `tools/build_demo_video.py`; the final audio/video merge uses FFmpeg.
+The generated narrated walkthrough is saved locally at `outputs/RoadAudit_AI_Demo_Video.mp4`. Its editable narration is `docs/demo_narration.txt`, and the renderer is `tools/build_demo_video.py`.
 
 ## Project layout
 
 ```text
-app.py                  Streamlit product interface
-backend/api.py          FastAPI and explicit JSON API contract
-ai/detector.py          YOLO adapter and temporary demo fallback
-utils/analytics.py      Severity, priority, RHI, DBSCAN deduplication
-utils/route_planner.py  NetworkX repair-route approximation
-utils/verification.py   Before/after comparison policy
-utils/storage.py        SQLite persistence
-database/               Created automatically on first run
-docs/DEMO_SCRIPT.md     Suggested 90-second product demo
-tools/build_demo_video.py  Reproducible walkthrough-video renderer
+app.py                     Streamlit operations dashboard
+backend/api.py             FastAPI upload, history, routing, and verification API
+ai/detector.py             Cached YOLO adapter and transparent demo fallback
+utils/analytics.py         Severity, priority, Road Health Index, DBSCAN
+utils/route_planner.py     NetworkX route approximation
+utils/verification.py      Before/after comparison policy
+utils/storage.py           SQLite evidence store
+assets/demo_road.png       Guided-demo inspection evidence
+tests/                     Unit, API, and end-to-end guided-demo tests
+docs/                      Demo and completion documentation
 ```

@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 import os
 import tempfile
 
@@ -11,7 +12,7 @@ from ai.detector import MODEL_PATH, inspect_media
 from utils.analytics import build_summary, enrich_detections, remove_duplicates
 from utils.map_view import build_map, build_route_map
 from utils.route_planner import plan_route
-from utils.storage import create_inspection, get_inspection, initialize_database, list_inspections, save_verification
+from utils.storage import create_inspection, get_inspection, initialize_database, list_inspections, list_verifications, save_verification
 from utils.verification import compare_inspections
 
 
@@ -19,6 +20,7 @@ ROOT = Path(__file__).parent
 UPLOADS = ROOT / "uploads"
 UPLOADS.mkdir(exist_ok=True)
 API_URL = os.getenv("ROAD_AUDIT_API_URL", "http://127.0.0.1:8000")
+DEMO_IMAGE = ROOT / "assets" / "demo_road.png"
 
 st.set_page_config(page_title="RoadAudit AI", page_icon="RA", layout="wide", initial_sidebar_state="expanded")
 initialize_database()
@@ -28,6 +30,20 @@ def save_upload(uploaded_file):
     with tempfile.NamedTemporaryFile(delete=False, suffix=Path(uploaded_file.name).suffix.lower(), dir=UPLOADS) as file:
         file.write(uploaded_file.getbuffer())
         return Path(file.name)
+
+
+class ProjectUpload:
+    """Small UploadedFile-compatible wrapper for bundled demo evidence."""
+    def __init__(self, path):
+        self.path = Path(path)
+        self.name = self.path.name
+        self.type = "image/png"
+
+    def getvalue(self):
+        return self.path.read_bytes()
+
+    def getbuffer(self):
+        return memoryview(self.getvalue())
 
 
 def severity_color(severity):
@@ -46,13 +62,46 @@ def run_inspection(uploaded_file, traffic, road_type):
         response.raise_for_status()
         result = response.json()
         return result["inspection_id"], result["defects"], result["summary"], Path(result["annotated_path"]), result["model_mode"]
-    except requests.RequestException:
+    except requests.HTTPError as error:
+        try:
+            detail = error.response.json().get("detail", "Backend rejected the inspection request.")
+        except ValueError:
+            detail = "Backend rejected the inspection request."
+        raise RuntimeError(detail) from error
+    except (requests.ConnectionError, requests.Timeout):
         path = save_upload(uploaded_file)
         raw, annotated, mode = inspect_media(path)
         defects = remove_duplicates(enrich_detections(raw, traffic, road_type))
         summary = build_summary(defects)
         inspection_id = create_inspection(uploaded_file.name, path.suffix.lower() in {".mp4", ".avi", ".mov"}, mode, traffic, road_type, defects, summary)
         return inspection_id, defects, summary, annotated, f"{mode} (local fallback)"
+
+
+def request_route(inspection_id, defects, depot, maximum):
+    try:
+        response = requests.post(f"{API_URL}/api/routes", json={"inspection_id": inspection_id, "depot_latitude": depot[0], "depot_longitude": depot[1], "max_repairs": maximum}, timeout=15)
+        response.raise_for_status()
+        return response.json()
+    except requests.HTTPError as error:
+        try: detail = error.response.json().get("detail", "Route request was rejected.")
+        except ValueError: detail = "Route request was rejected."
+        raise RuntimeError(detail) from error
+    except (requests.ConnectionError, requests.Timeout):
+        return plan_route(defects, depot, maximum)
+
+
+def persist_verification(before_id, after_name, outcome, after_defects, after_summary):
+    payload = {"before_inspection_id": before_id, "after_source_name": after_name, "outcome": outcome, "after_defects": after_defects, "after_summary": after_summary}
+    try:
+        response = requests.post(f"{API_URL}/api/verifications", json=payload, timeout=15)
+        response.raise_for_status()
+        return response.json()["verification_id"]
+    except requests.HTTPError as error:
+        try: detail = error.response.json().get("detail", "Verification could not be saved.")
+        except ValueError: detail = "Verification could not be saved."
+        raise RuntimeError(detail) from error
+    except (requests.ConnectionError, requests.Timeout):
+        return save_verification(before_id, after_name, outcome, after_defects, after_summary)
 
 
 def latest_inspection():
@@ -242,6 +291,15 @@ with inspect_tab:
             st.caption("Forward-facing view · visible road surface · minimal motion blur · short clips for fast processing")
             st.markdown(f"**Context:** {road_type}")
             st.caption(f"Traffic estimate: {traffic_level}/100")
+            if DEMO_IMAGE.exists() and st.button("Run guided sample inspection", use_container_width=True):
+                try:
+                    with st.spinner("Loading the guided road sample..."):
+                        demo_upload = ProjectUpload(DEMO_IMAGE)
+                        inspection_id, defects, summary, annotated, mode = run_inspection(demo_upload, traffic_level, road_type)
+                    st.session_state.update(latest_id=inspection_id, latest_annotated=str(annotated))
+                    st.success(f"Guided inspection #{inspection_id} ready")
+                except Exception as error:
+                    st.error(f"Guided inspection could not be completed: {error}")
     if upload:
         with st.container(border=True):
             st.caption(f"READY FOR INSPECTION  ·  {upload.name}")
@@ -292,6 +350,15 @@ with inspect_tab:
             top = record["defects"][0]
             st.markdown(f"""<div class="callout"><div class="rank">1</div><div><h4>{top['id']} is the highest-priority repair</h4>
             <p>Score {top['priority_score']:.0f}/100 · {top['severity']} {top['damage_type'].lower()} · {top['duplicate_count']} observation(s) · {record['road_type']}</p></div></div>""", unsafe_allow_html=True)
+            with st.expander("How this priority score was calculated"):
+                factors = top.get("priority_factors", {})
+                factor_columns = st.columns(5)
+                factor_columns[0].metric("Severity", factors.get("severity", "--"))
+                factor_columns[1].metric("Road importance", factors.get("road_importance", "--"))
+                factor_columns[2].metric("Traffic", factors.get("traffic", "--"))
+                factor_columns[3].metric("Confidence", factors.get("confidence", "--"))
+                factor_columns[4].metric("Frequency bonus", f"+{factors.get('frequency_bonus', 0):g}")
+                st.caption("Weighted score: 45% severity + 25% road importance + 20% traffic + 10% model confidence, with a capped repeat-observation bonus.")
             chart_column, map_column = st.columns([.85, 1.35])
             with chart_column:
                 with st.container(border=True):
@@ -305,7 +372,9 @@ with inspect_tab:
                 with st.container(border=True):
                     st.caption("GEOTAGGED DEFECT MAP")
                     st.components.v1.html(build_map(record["defects"])._repr_html_(), height=355)
-            st.download_button("Export inspection register", df.to_csv(index=False).encode(), "roadaudit_inspection.csv", "text/csv", use_container_width=True)
+            export_csv, export_json = st.columns(2)
+            export_csv.download_button("Export inspection register (CSV)", df.to_csv(index=False).encode(), "roadaudit_inspection.csv", "text/csv", use_container_width=True)
+            export_json.download_button("Export complete evidence (JSON)", json.dumps(record, indent=2).encode(), f"roadaudit_inspection_{record['id']}.json", "application/json", use_container_width=True)
 
 with plan_tab:
     section_header("Crew planning", "Build a priority-aware repair route", "Select the crew capacity and depot. NetworkX generates a practical closed route across the highest-value repairs.")
@@ -322,7 +391,10 @@ with plan_tab:
                 with depot_a: depot_lat = st.number_input("Depot latitude", value=32.72520, format="%.5f")
                 with depot_b: depot_lon = st.number_input("Depot longitude", value=74.85580, format="%.5f")
                 if st.button("Generate optimized repair plan", type="primary", use_container_width=True):
-                    st.session_state["route"] = plan_route(active["defects"], (depot_lat, depot_lon), maximum)
+                    try:
+                        st.session_state["route"] = request_route(active["id"], active["defects"], (depot_lat, depot_lon), maximum)
+                    except Exception as error:
+                        st.error(f"Repair route could not be generated: {error}")
         with context:
             with st.container(border=True):
                 st.caption("ACTIVE INSPECTION")
@@ -378,7 +450,7 @@ with verify_tab:
                 with st.spinner("Inspecting post-repair evidence and comparing visible risk..."):
                     _, after_defects, after_summary, annotated, mode = run_inspection(after, before["traffic_level"], before["road_type"])
                     outcome = compare_inspections(before["defects"], before["summary"], after_defects, after_summary)
-                    verification_id = save_verification(before["id"], after.name, outcome, after_defects, after_summary)
+                    verification_id = persist_verification(before["id"], after.name, outcome, after_defects, after_summary)
                 st.markdown(f'<div class="verification-banner">Verification #{verification_id} · {outcome["status"]}</div>', unsafe_allow_html=True)
                 comparison = st.columns(3)
                 comparison[0].metric("Before health", f"{before['summary']['road_health_index']}%")
@@ -417,6 +489,14 @@ with history_tab:
                 st.plotly_chart(volume,use_container_width=True,config={"displayModeBar":False})
         display_history = history.copy()
         display_history["created_at"] = display_history["created_at"].dt.strftime("%d %b %Y · %H:%M")
-        display_history.columns = ["ID","Inspected at","Source","Inference mode","Road type","Road health","Unique defects","Urgent repairs"]
+        display_history = display_history[["id","created_at","source_name","model_mode","road_type","road_health_index","unique_defects","duplicates_removed","urgent_repairs"]]
+        display_history.columns = ["ID","Inspected at","Source","Inference mode","Road type","Road health","Unique defects","Duplicates removed","Urgent repairs"]
         st.dataframe(display_history, use_container_width=True, hide_index=True)
         st.download_button("Export complete inspection history", history.to_csv(index=False).encode(), "roadaudit_history.csv", "text/csv", use_container_width=True)
+        verification_records = list_verifications()
+        if verification_records:
+            section_header("Repair evidence", "Verification history", "Auditable before-and-after checks linked to their original inspection records.")
+            verification_history = pd.DataFrame(verification_records)
+            verification_history["created_at"] = pd.to_datetime(verification_history["created_at"]).dt.strftime("%d %b %Y · %H:%M")
+            verification_history.columns = ["Verification ID","Verified at","Before record","Before source","After source","Status","Health change"]
+            st.dataframe(verification_history, use_container_width=True, hide_index=True)

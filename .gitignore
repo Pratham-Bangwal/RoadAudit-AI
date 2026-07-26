@@ -3,7 +3,7 @@ __pycache__/
 .venv/
 .idea/
 .vscode/
-database/*.db
+database/*.db*
 uploads/*
 outputs/*
 work/

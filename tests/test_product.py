@@ -1,4 +1,5 @@
 import unittest
+import io
 
 from utils.analytics import build_summary, enrich_detections, remove_duplicates, severity_from_bbox
 from utils.route_planner import plan_route
@@ -20,12 +21,24 @@ class ProductLogicTests(unittest.TestCase):
         self.assertEqual(severity_from_bbox([0, 0, 200, 200]), "Severe")
         self.assertEqual(severity_from_bbox([0, 0, 300, 300]), "Critical")
 
+    def test_normalized_severity_is_resolution_independent(self):
+        low_resolution = severity_from_bbox([100, 100, 300, 300], 1000, 1000, "Pothole")
+        high_resolution = severity_from_bbox([200, 200, 600, 600], 2000, 2000, "Pothole")
+        self.assertEqual(low_resolution, high_resolution)
+
     def test_priority_and_deduplication(self):
         enriched = enrich_detections(self.raw, 80, "Hospital / emergency route")
         unique = remove_duplicates(enriched)
         self.assertLessEqual(len(unique), len(enriched))
         self.assertTrue(all(0 <= item["priority_score"] <= 100 for item in unique))
         self.assertEqual(sum(item["duplicate_count"] for item in unique), len(enriched))
+        self.assertGreaterEqual(unique[0]["priority_factors"]["frequency_bonus"], 0)
+
+    def test_different_damage_types_are_never_merged(self):
+        common = {"confidence": .9, "bbox": [0, 0, 100, 100], "frame": 0, "severity": "Moderate", "priority_score": 60, "priority": "High", "latitude": 32.7, "longitude": 74.8}
+        detections = [{**common, "id": "A", "damage_type": "Pothole"}, {**common, "id": "B", "damage_type": "Road crack"}]
+        unique = remove_duplicates(detections)
+        self.assertEqual(len(unique), 2)
 
     def test_summary_is_bounded(self):
         defects = remove_duplicates(enrich_detections(self.raw, 70, "Main road"))
@@ -54,6 +67,20 @@ class ProductLogicTests(unittest.TestCase):
         response = client.get("/health")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["status"], "ok")
+
+    def test_fastapi_rejects_invalid_uploads_and_context(self):
+        client = TestClient(app)
+        unsupported = client.post("/api/inspect", files={"file": ("road.txt", io.BytesIO(b"test"), "text/plain")})
+        self.assertEqual(unsupported.status_code, 415)
+        bad_context = client.post("/api/inspect", files={"file": ("road.jpg", io.BytesIO(b"not-an-image"), "image/jpeg")}, data={"road_type": "Unknown"})
+        self.assertEqual(bad_context.status_code, 422)
+
+    def test_fastapi_route_and_verification_require_valid_inspection(self):
+        client = TestClient(app)
+        missing_route = client.post("/api/routes", json={"inspection_id": 999999, "depot_latitude": 32.7, "depot_longitude": 74.8, "max_repairs": 3})
+        self.assertEqual(missing_route.status_code, 404)
+        missing_verification = client.post("/api/verifications", json={"before_inspection_id": 999999, "after_source_name": "after.jpg", "outcome": {"status": "test"}, "after_defects": [], "after_summary": {}})
+        self.assertEqual(missing_verification.status_code, 404)
 
 
 if __name__ == "__main__":
