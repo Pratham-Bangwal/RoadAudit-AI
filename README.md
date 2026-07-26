@@ -45,6 +45,16 @@ No application changes are needed. The model should expose road-damage classes; 
 - Severity is an image-space estimate; it does not measure pothole depth or engineering dimensions.
 - Repair verification is a visual evidence aid. Critical repairs must be field-verified before sign-off.
 
+## Demo video
+
+The generated 79-second narrated walkthrough is saved at:
+
+```text
+outputs/RoadAudit_AI_Demo_Video.mp4
+```
+
+Rebuild it after editing `docs/demo_narration.txt` by generating the narration WAV and running `tools/build_demo_video.py`; the final audio/video merge uses FFmpeg.
+
 ## Project layout
 
 ```text
@@ -57,4 +67,5 @@ utils/verification.py   Before/after comparison policy
 utils/storage.py        SQLite persistence
 database/               Created automatically on first run
 docs/DEMO_SCRIPT.md     Suggested 90-second product demo
+tools/build_demo_video.py  Reproducible walkthrough-video renderer
 ```

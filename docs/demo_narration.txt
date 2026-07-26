@@ -1,0 +1,11 @@
+Road maintenance today is often reactive, depending on manual surveys and fragmented citizen complaints. This delays repairs and makes it difficult to decide which defects matter most.
+
+RoadAudit AI transforms ordinary road images and vehicle video into an actionable maintenance workflow. The user uploads inspection evidence through the Streamlit dashboard. A YOLO road-damage model detects potholes and cracks, while the platform records confidence, estimates image-based severity, and assigns simulated GPS coordinates for the prototype.
+
+Repeated observations of the same defect are merged using DBSCAN clustering. Each unique defect receives an explainable priority score based on severity, road importance, traffic, and model confidence. The dashboard then presents a Road Health Index, urgent-repair count, estimated budget, severity charts, and a geotagged defect map.
+
+For maintenance teams, RoadAudit AI uses NetworkX route optimization to generate a practical repair sequence from the depot, covering the highest-priority defects within the crew's daily capacity.
+
+After maintenance, before-and-after evidence supports repair verification and flags completed, partial, or unverified work for review.
+
+With FastAPI, SQLite, Streamlit, Folium, DBSCAN, and NetworkX, RoadAudit AI connects detection to decision, action, and accountability.

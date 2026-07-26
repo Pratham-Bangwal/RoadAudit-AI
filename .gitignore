@@ -6,5 +6,6 @@ __pycache__/
 database/*.db
 uploads/*
 outputs/*
+work/
 models/*.pt
 !.gitkeep
