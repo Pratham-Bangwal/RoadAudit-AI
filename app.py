@@ -99,6 +99,7 @@ except requests.RequestException:
     api_online = False
 model_ready = MODEL_PATH.exists()
 all_records = list_inspections()
+dark_mode = st.session_state.get("dark_mode", False)
 
 st.markdown(
     """
@@ -134,10 +135,14 @@ st.markdown(
     div[data-baseweb="tab-list"] {gap:8px;background:white;border:1px solid var(--line);border-radius:14px;padding:6px;box-shadow:0 5px 16px rgba(15,35,60,.04);}
     button[data-baseweb="tab"] {height:42px;border-radius:9px;padding:0 22px;color:#617187;font-weight:700;}
     button[data-baseweb="tab"][aria-selected="true"] {background:#eaf2ff;color:#1d4ed8;}
+    button[data-baseweb="tab"] p {color:#526277!important;font-weight:750!important;}
+    button[data-baseweb="tab"][aria-selected="true"] p {color:#1d4ed8!important;}
     [data-baseweb="tab-highlight"] {display:none;}
     .section-heading {margin:1.55rem 0 1rem;}.section-heading .eyebrow {font-size:.7rem;letter-spacing:.14em;text-transform:uppercase;color:#2563eb;font-weight:800;}.section-heading h2 {font-size:1.55rem;letter-spacing:-.025em;margin:.22rem 0;color:#102033;}.section-heading p {color:#6c7a8d;margin:0;max-width:800px;font-size:.9rem;}
     [data-testid="stFileUploader"] {background:white;border:1px solid var(--line);border-radius:16px;padding:8px;}
     [data-testid="stFileUploaderDropzone"] {background:#f8fbff;border:1.5px dashed #a8c3e3;border-radius:12px;min-height:145px;}
+    [data-testid="stFileUploaderDropzone"] button {background:#102033!important;color:#f8fafc!important;border:1px solid #203a56!important;}
+    [data-testid="stFileUploaderDropzone"] button p {color:#f8fafc!important;}
     .stButton > button[kind="primary"] {border:0;border-radius:10px;background:linear-gradient(100deg,#2563eb,#0ea5e9);font-weight:750;box-shadow:0 8px 18px rgba(37,99,235,.2);min-height:42px;}
     .stButton > button:not([kind="primary"]),.stDownloadButton > button {border-radius:10px;border-color:#b8c9dc;color:#26415f;background:white;font-weight:650;}
     [data-testid="stVerticalBlockBorderWrapper"] {background:white;border-color:var(--line)!important;border-radius:16px!important;box-shadow:0 6px 20px rgba(15,35,60,.035);}
@@ -149,14 +154,46 @@ st.markdown(
     .callout {display:flex;gap:14px;align-items:flex-start;background:#eaf4ff;border:1px solid #bdd9f5;border-radius:14px;padding:1rem 1.15rem;margin:.8rem 0 1rem;}.callout .rank {min-width:36px;height:36px;display:flex;align-items:center;justify-content:center;background:#2563eb;color:white;border-radius:10px;font-weight:800;}.callout h4 {margin:0 0 .18rem;color:#15314f}.callout p {margin:0;color:#57708a;font-size:.86rem;}
     .empty-state {display:flex;align-items:center;gap:18px;background:white;border:1px dashed #aec4db;border-radius:16px;padding:1.5rem;margin:1rem 0;}.empty-number {width:48px;height:48px;border-radius:14px;background:#eaf2ff;color:#2563eb;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:1.15rem;}.empty-state h3{margin:0 0 .2rem;color:#17314d;font-size:1rem}.empty-state p{margin:0;color:#718096;font-size:.86rem}
     .verification-banner {border-radius:15px;padding:1rem 1.2rem;background:#ecfdf5;border:1px solid #a7f3d0;color:#14532d;font-weight:700;margin:.7rem 0 1rem;}
-    @media(max-width:900px){.overview-strip{grid-template-columns:1fr}.metric-card{margin-bottom:.5rem}.block-container{padding:1rem}.hero h1{font-size:1.7rem}}
+    @media(max-width:900px){.overview-strip{grid-template-columns:1fr}.metric-card{margin-bottom:.5rem}.block-container{padding:1rem}.hero h1{font-size:1.7rem}button[data-baseweb="tab"]{padding:0 10px}button[data-baseweb="tab"] p{font-size:.68rem!important}}
     </style>
     """,
     unsafe_allow_html=True,
 )
 
+if dark_mode:
+    st.markdown(
+        """
+        <style>
+        .stApp {background:#06111f;color:#dce8f5;}
+        .overview-item,.metric-card,[data-testid="stVerticalBlockBorderWrapper"],[data-testid="stFileUploader"],[data-testid="stDataFrame"] {background:#0c2038!important;border-color:#23415f!important;color:#dce8f5!important;box-shadow:0 8px 24px rgba(0,0,0,.18)!important;}
+        .overview-item b,.metric-value,.section-heading h2,.empty-state h3,.callout h4 {color:#eef6ff!important;}
+        .overview-item span,.metric-label,.metric-note,.section-heading p,.empty-state p,.callout p {color:#9fb2c7!important;}
+        div[data-baseweb="tab-list"] {background:#0c2038!important;border-color:#23415f!important;}
+        button[data-baseweb="tab"] p {color:#a9bad0!important;}
+        button[data-baseweb="tab"][aria-selected="true"] {background:#143458!important;}
+        button[data-baseweb="tab"][aria-selected="true"] p {color:#67e8f9!important;}
+        [data-testid="stFileUploaderDropzone"] {background:#091a2f!important;border-color:#37658f!important;}
+        [data-testid="stFileUploaderDropzone"] small,[data-testid="stFileUploaderDropzone"] span,[data-testid="stFileUploaderDropzone"] p {color:#b8c9da!important;}
+        [data-testid="stFileUploaderDropzone"] button p {color:#f8fafc!important;}
+        .empty-state {background:#0c2038!important;border-color:#315675!important;}
+        .empty-number {background:#143458!important;color:#67e8f9!important;}
+        .callout {background:#102a47!important;border-color:#27537b!important;}
+        .verification-banner {background:#0b3528!important;border-color:#197652!important;color:#86efac!important;}
+        [data-testid="stDataFrame"] {--gdg-bg-cell:#0c2038;--gdg-bg-header:#102943;}
+        [data-testid="stMetric"] {background:#0c2038!important;border-color:#23415f!important;}
+        [data-testid="stMetricLabel"] p,[data-testid="stMetricDelta"] svg {color:#9fb2c7!important;fill:#9fb2c7!important;}
+        [data-testid="stMetricValue"] {color:#eef6ff!important;}
+        .stMarkdown p,.stCaptionContainer p {color:#a9bad0;}
+        .stMarkdown strong {color:#e8f2fc;}
+        label[data-testid="stWidgetLabel"] p {color:#c8d7e7!important;}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
 with st.sidebar:
     st.markdown('<div class="sidebar-brand"><span class="brand-mark">RA</span><span class="brand-name">RoadAudit AI</span></div>', unsafe_allow_html=True)
+    st.toggle("Dark mode", key="dark_mode", help="Switch the dashboard between light and dark themes.")
     st.markdown('<div class="sidebar-kicker">Inspection context</div>', unsafe_allow_html=True)
     road_type = st.selectbox("Road importance", ["Hospital / emergency route", "Main road", "Local road"], index=1)
     traffic_level = st.slider("Traffic level", 0, 100, 70, help="Prototype estimate used in the priority score.")
