@@ -11,7 +11,7 @@ from utils.evidence import evidence_fingerprint, fingerprint_similarity
 from utils.route_planner import plan_route
 from utils.verification import compare_inspections
 from utils.reporting import build_html_report
-from utils.storage import create_inspection, database_backup_bytes, delete_inspection, get_inspection
+from utils.storage import create_inspection, database_backup_bytes, delete_inspection, get_inspection, list_verifications, save_verification
 from backend.api import app
 from fastapi.testclient import TestClient
 
@@ -111,6 +111,23 @@ class ProductLogicTests(unittest.TestCase):
             self.assertGreater(len(database_backup_bytes()), 100)
         finally:
             self.assertTrue(delete_inspection(inspection_id))
+
+    def test_deleting_inspection_removes_linked_verifications(self):
+        inspection_id = create_inspection(
+            "cascade-test.png", False, "test", 70, "Main road", [], build_summary([])
+        )
+        try:
+            verification_id = save_verification(
+                inspection_id,
+                "cascade-after.png",
+                {"status": "test", "health_change": 0},
+                [],
+                {"road_health_index": 100},
+            )
+            self.assertTrue(any(item["id"] == verification_id for item in list_verifications()))
+        finally:
+            self.assertTrue(delete_inspection(inspection_id))
+        self.assertFalse(any(item["id"] == verification_id for item in list_verifications()))
 
     def test_fastapi_health_and_json_contract(self):
         client = TestClient(app)

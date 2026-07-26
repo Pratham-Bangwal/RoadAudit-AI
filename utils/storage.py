@@ -54,6 +54,11 @@ def initialize_database():
             after_summary_json TEXT NOT NULL,
             FOREIGN KEY(before_inspection_id) REFERENCES inspections(id) ON DELETE CASCADE
         )""")
+        # Older prototype databases may predate the foreign-key constraint.
+        # Remove any legacy orphan rows during startup so history and counts agree.
+        database.execute(
+            "DELETE FROM verifications WHERE before_inspection_id NOT IN (SELECT id FROM inspections)"
+        )
         database.execute("CREATE INDEX IF NOT EXISTS idx_inspections_created_at ON inspections(created_at DESC)")
         database.execute("CREATE INDEX IF NOT EXISTS idx_verifications_before ON verifications(before_inspection_id)")
 
@@ -144,13 +149,18 @@ def list_verifications(limit=50):
 def database_stats():
     with connect() as database:
         inspections = database.execute("SELECT COUNT(*) FROM inspections WHERE model_mode <> 'test'").fetchone()[0]
-        verifications = database.execute("SELECT COUNT(*) FROM verifications").fetchone()[0]
+        verifications = database.execute(
+            "SELECT COUNT(*) FROM verifications v JOIN inspections i ON i.id=v.before_inspection_id"
+        ).fetchone()[0]
     return {"inspections": inspections, "verifications": verifications}
 
 
 def delete_inspection(inspection_id):
     """Delete one decision record; linked verification rows cascade safely."""
     with connect() as database:
+        # Explicit deletion keeps lifecycle safe even for legacy databases
+        # whose verifications table was created without a foreign key.
+        database.execute("DELETE FROM verifications WHERE before_inspection_id=?", (inspection_id,))
         cursor = database.execute("DELETE FROM inspections WHERE id=?", (inspection_id,))
         return cursor.rowcount > 0
 
