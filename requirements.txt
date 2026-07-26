@@ -1,0 +1,9 @@
+streamlit>=1.45
+ultralytics>=8.3
+opencv-python>=4.10
+pillow>=10.0
+pandas>=2.2
+numpy>=1.26
+scikit-learn>=1.5
+folium>=0.17
+plotly>=5.24
