@@ -2,7 +2,7 @@
 
 ## Before recording
 
-1. Run `streamlit run app.py` from `D:\RoadAuditAi`.
+1. Run `powershell -ExecutionPolicy Bypass -File .\run_app.ps1` from `D:\RoadAuditAi`.
 2. Use a clear road image or a short dashcam clip. If the model file is not yet available, say **"demo fallback mode"** once; do not imply those detections are a trained-model result.
 3. Keep the browser at 100% zoom and use the same sample evidence for every recording take.
 
@@ -34,9 +34,9 @@ Click: **Maintenance plan**, then **Generate repair plan**. Show route length, p
 
 ### 70–85 seconds — accountability
 
-Say: “After work is reported complete, a new image can be compared with the prior inspection. RoadAudit AI reports whether the repair is likely complete, partially repaired, or requires manual review.”
+Say: “After work is reported complete, a new image can be compared with the prior inspection. RoadAudit AI checks that the road views are visually consistent, then reports whether the repair is likely complete, partially repaired, or requires manual review.”
 
-Show: **Verify repair**. If time is short, do not run a second upload; point to the fields and state the output.
+Show: **Verify repair** and point to **Same-road confidence**. If time is short, do not run a second upload; point to the fields and state the output.
 
 ### 85–90 seconds — close
 
@@ -54,3 +54,11 @@ Show: the RoadAudit AI header.
 
 **Why not just detect potholes?**  
 “Detection alone creates a list. Our workflow deduplicates it, ranks it, routes a crew, and records before/after evidence.”
+
+**What prevents a misleading before/after comparison?**
+
+“New inspections store a compact perceptual fingerprint. If the two road views are too different, the platform blocks an automatic repair conclusion and requests manual review.”
+
+**How is operational data protected?**
+
+“The history screen exposes storage health, produces a consistent SQLite backup, requires explicit confirmation before deleting a record, and only removes files that are no longer linked to evidence.”

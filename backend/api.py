@@ -5,14 +5,25 @@ import logging
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field
 
 from ai.detector import inspect_media
 from utils.analytics import build_summary, enrich_detections, remove_duplicates
+from utils.evidence import evidence_fingerprint
 from utils.route_planner import plan_route
 from utils.reporting import build_html_report
-from utils.storage import database_stats, create_inspection, get_inspection, initialize_database, list_inspections, list_verifications, save_verification
+from utils.storage import (
+    create_inspection,
+    database_backup_bytes,
+    delete_inspection,
+    get_inspection,
+    initialize_database,
+    list_inspections,
+    list_verifications,
+    save_verification,
+    storage_stats,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 UPLOADS = ROOT / "uploads"
@@ -22,8 +33,8 @@ ALLOWED_ROAD_TYPES = {"Hospital / emergency route", "Main road", "Local road"}
 MAX_UPLOAD_BYTES = 100 * 1024 * 1024
 LOGGER = logging.getLogger("roadaudit.api")
 
-app = FastAPI(title="RoadAudit AI API", version="1.1.0", description="Inspection, persistence, prioritization, and route-planning services.")
-app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:8501", "http://127.0.0.1:8501"], allow_credentials=False, allow_methods=["GET", "POST"], allow_headers=["*"])
+app = FastAPI(title="RoadAudit AI API", version="1.2.0", description="Inspection, persistence, prioritization, verification, and route-planning services.")
+app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:8501", "http://127.0.0.1:8501"], allow_credentials=False, allow_methods=["GET", "POST", "DELETE"], allow_headers=["*"])
 initialize_database()
 
 
@@ -44,7 +55,12 @@ class VerificationRequest(BaseModel):
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "RoadAudit AI API", "version": app.version, **database_stats()}
+    return {"status": "ok", "service": "RoadAudit AI API", "version": app.version, **storage_stats()}
+
+
+@app.get("/api/system")
+def system_status():
+    return {"service": "RoadAudit AI API", "version": app.version, **storage_stats()}
 
 
 @app.post("/api/inspect")
@@ -66,7 +82,19 @@ async def inspect_road(file: UploadFile = File(...), traffic_level: int = Form(d
         raw, annotated, model_mode = inspect_media(destination)
         defects = remove_duplicates(enrich_detections(raw, traffic_level, road_type))
         summary = build_summary(defects)
-        inspection_id = create_inspection(file.filename or destination.name, suffix in {".mp4", ".avi", ".mov"}, model_mode, traffic_level, road_type, defects, summary)
+        fingerprint = evidence_fingerprint(destination)
+        inspection_id = create_inspection(
+            file.filename or destination.name,
+            suffix in {".mp4", ".avi", ".mov"},
+            model_mode,
+            traffic_level,
+            road_type,
+            defects,
+            summary,
+            source_path=destination,
+            evidence_fingerprint=fingerprint,
+            annotated_path=annotated,
+        )
         return {"inspection_id": inspection_id, "model_mode": model_mode, "annotated_path": str(annotated), "defects": defects, "summary": summary}
     except HTTPException:
         destination.unlink(missing_ok=True)
@@ -99,6 +127,23 @@ def inspection_json(inspection_id: int):
 @app.get("/api/inspections/{inspection_id}/report", response_class=HTMLResponse)
 def inspection_report(inspection_id: int):
     return build_html_report(inspection(inspection_id))
+
+
+@app.delete("/api/inspections/{inspection_id}", status_code=204)
+def remove_inspection(inspection_id: int):
+    if not delete_inspection(inspection_id):
+        raise HTTPException(status_code=404, detail="Inspection not found.")
+    return Response(status_code=204)
+
+
+@app.get("/api/backup")
+def backup():
+    filename = "roadaudit_database_backup.db"
+    return Response(
+        content=database_backup_bytes(),
+        media_type="application/vnd.sqlite3",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @app.get("/api/verifications")

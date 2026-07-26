@@ -17,11 +17,17 @@
 - [x] Geotagged defect map
 - [x] NetworkX priority-aware repair route with depot return
 - [x] Before/after repair-verification policy
+- [x] Same-road perceptual evidence consistency guard
 - [x] SQLite inspection and verification persistence
+- [x] Source/annotated evidence metadata retention
+- [x] Downloadable consistent SQLite database backup
+- [x] Storage diagnostics and guarded record deletion
+- [x] Unreferenced runtime-evidence cleanup
 - [x] Inspection and history CSV exports
 - [x] Complete inspection JSON export
 - [x] Graceful UI error handling
 - [x] Automated product-logic tests
+- [x] Evidence fingerprint, mismatch, backup, and lifecycle tests
 - [x] End-to-end bundled-image inspection test
 - [x] GitHub Actions continuous integration
 - [x] Setup instructions, prototype disclosures, and demo talk track

@@ -10,10 +10,22 @@ import streamlit as st
 
 from ai.detector import MODEL_PATH, inspect_media
 from utils.analytics import build_summary, enrich_detections, remove_duplicates
+from utils.evidence import evidence_fingerprint, fingerprint_similarity
 from utils.map_view import build_map, build_route_map
 from utils.route_planner import plan_route
 from utils.reporting import build_html_report
-from utils.storage import create_inspection, get_inspection, initialize_database, list_inspections, list_verifications, save_verification
+from utils.storage import (
+    create_inspection,
+    database_backup_bytes,
+    delete_inspection,
+    get_inspection,
+    initialize_database,
+    list_inspections,
+    list_verifications,
+    remove_unreferenced_evidence,
+    save_verification,
+    storage_stats,
+)
 from utils.verification import compare_inspections
 
 
@@ -51,6 +63,14 @@ def severity_color(severity):
     return {"Critical": "#ef4444", "Severe": "#f97316", "Moderate": "#eab308", "Minor": "#22c55e"}.get(severity, "#64748b")
 
 
+def format_bytes(value):
+    value = float(value)
+    for unit in ("B", "KB", "MB", "GB"):
+        if value < 1024 or unit == "GB":
+            return f"{value:.1f} {unit}"
+        value /= 1024
+
+
 def run_inspection(uploaded_file, traffic, road_type):
     payload = uploaded_file.getvalue()
     try:
@@ -74,7 +94,18 @@ def run_inspection(uploaded_file, traffic, road_type):
         raw, annotated, mode = inspect_media(path)
         defects = remove_duplicates(enrich_detections(raw, traffic, road_type))
         summary = build_summary(defects)
-        inspection_id = create_inspection(uploaded_file.name, path.suffix.lower() in {".mp4", ".avi", ".mov"}, mode, traffic, road_type, defects, summary)
+        inspection_id = create_inspection(
+            uploaded_file.name,
+            path.suffix.lower() in {".mp4", ".avi", ".mov"},
+            mode,
+            traffic,
+            road_type,
+            defects,
+            summary,
+            source_path=path,
+            evidence_fingerprint=evidence_fingerprint(path),
+            annotated_path=annotated,
+        )
         return inspection_id, defects, summary, annotated, f"{mode} (local fallback)"
 
 
@@ -144,9 +175,12 @@ def empty_state(title, body, number):
 
 
 try:
-    api_online = requests.get(f"{API_URL}/health", timeout=1).ok
+    health_response = requests.get(f"{API_URL}/health", timeout=1)
+    api_online = health_response.ok
+    api_health = health_response.json() if api_online else {}
 except requests.RequestException:
     api_online = False
+    api_health = {}
 model_ready = MODEL_PATH.exists()
 all_records = list_inspections()
 dark_mode = st.session_state.get("dark_mode", False)
@@ -250,6 +284,16 @@ with st.sidebar:
     st.markdown('<div class="sidebar-kicker">System status</div>', unsafe_allow_html=True)
     st.success("FastAPI connected") if api_online else st.warning("Local pipeline active")
     st.success("YOLO weights ready") if model_ready else st.info("Demo inference mode")
+    with st.expander("System diagnostics"):
+        system = api_health or storage_stats()
+        st.caption(f"API version: {system.get('version', 'local')}")
+        st.caption(f"Saved inspections: {system.get('inspections', 0)}")
+        st.caption(f"Repair checks: {system.get('verifications', 0)}")
+        if system.get("uploads"):
+            st.caption(
+                f"Retained evidence: {system['uploads']['files']} files "
+                f"({format_bytes(system['uploads']['bytes'])})"
+            )
     st.markdown('<div class="sidebar-kicker">Decision pipeline</div>', unsafe_allow_html=True)
     st.markdown("""<div class="workflow-step"><span>1</span>Detect visible road damage</div>
     <div class="workflow-step"><span>2</span>Merge duplicate observations</div>
@@ -292,7 +336,7 @@ with inspect_tab:
             st.caption("Forward-facing view · visible road surface · minimal motion blur · short clips for fast processing")
             st.markdown(f"**Context:** {road_type}")
             st.caption(f"Traffic estimate: {traffic_level}/100")
-            if DEMO_IMAGE.exists() and st.button("Run guided sample inspection", use_container_width=True):
+            if DEMO_IMAGE.exists() and st.button("Run guided sample inspection", width="stretch"):
                 try:
                     with st.spinner("Loading the guided road sample..."):
                         demo_upload = ProjectUpload(DEMO_IMAGE)
@@ -307,8 +351,8 @@ with inspect_tab:
             if Path(upload.name).suffix.lower() in {".mp4", ".avi", ".mov"}:
                 st.video(upload)
             else:
-                st.image(upload, use_container_width=True)
-        if st.button("Run AI road inspection", type="primary", use_container_width=True):
+                st.image(upload, width="stretch")
+        if st.button("Run AI road inspection", type="primary", width="stretch"):
             try:
                 with st.spinner("Detecting damage, clustering duplicates and calculating repair priorities..."):
                     inspection_id, defects, summary, annotated, mode = run_inspection(upload, traffic_level, road_type)
@@ -329,7 +373,7 @@ with inspect_tab:
                 st.caption("ANNOTATED INSPECTION EVIDENCE")
                 annotated_path = Path(st.session_state.get("latest_annotated", "missing"))
                 if annotated_path.exists():
-                    st.image(str(annotated_path), use_container_width=True)
+                    st.image(str(annotated_path), width="stretch")
                 else:
                     st.info("Annotated preview is available immediately after running an inspection.")
         with health_column:
@@ -338,7 +382,7 @@ with inspect_tab:
                 gauge = px.pie(values=[record["summary"]["road_health_index"], 100-record["summary"]["road_health_index"]], names=["Healthy", "Damage burden"], hole=.72, color_discrete_sequence=["#22c55e", "#e5eaf1"])
                 gauge.update_traces(textinfo="none", hovertemplate="%{label}: %{value}%<extra></extra>")
                 gauge.update_layout(showlegend=False, margin=dict(l=10, r=10, t=10, b=10), height=235, paper_bgcolor="rgba(0,0,0,0)", annotations=[dict(text=f"<b>{record['summary']['road_health_index']}%</b><br>Road health", x=.5, y=.5, showarrow=False, font=dict(size=19, color="#102033"))])
-                st.plotly_chart(gauge, use_container_width=True, config={"displayModeBar": False})
+                st.plotly_chart(gauge, width="stretch", config={"displayModeBar": False})
                 st.caption("Image-based condition indicator for maintenance triage; not an engineering pavement rating.")
         if record["defects"]:
             df = pd.DataFrame(record["defects"]).sort_values("priority_score", ascending=False)
@@ -347,7 +391,7 @@ with inspect_tab:
             display["Confidence"] = display["Confidence"].map(lambda x: f"{x:.0%}")
             display["Score"] = display["Score"].map(lambda x: f"{x:.0f}/100")
             section_header("Maintenance intelligence", "Repair priority register", "Unique defects are ranked by urgency and supported by explainable evidence.")
-            st.dataframe(display, use_container_width=True, hide_index=True, column_config={"Severity": st.column_config.TextColumn(width="small"), "Score": st.column_config.TextColumn(width="small")})
+            st.dataframe(display, width="stretch", hide_index=True, column_config={"Severity": st.column_config.TextColumn(width="small"), "Score": st.column_config.TextColumn(width="small")})
             top = record["defects"][0]
             st.markdown(f"""<div class="callout"><div class="rank">1</div><div><h4>{top['id']} is the highest-priority repair</h4>
             <p>Score {top['priority_score']:.0f}/100 · {top['severity']} {top['damage_type'].lower()} · {top['duplicate_count']} observation(s) · {record['road_type']}</p></div></div>""", unsafe_allow_html=True)
@@ -368,15 +412,15 @@ with inspect_tab:
                     chart = px.bar(counts, x="Defects", y="Severity", orientation="h", color="Severity", color_discrete_map={x: severity_color(x) for x in counts["Severity"]})
                     chart.update_layout(showlegend=False, margin=dict(l=5, r=10, t=10, b=5), height=355, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
                     chart.update_xaxes(showgrid=True, gridcolor="#e7edf4", title=None); chart.update_yaxes(title=None)
-                    st.plotly_chart(chart, use_container_width=True, config={"displayModeBar": False})
+                    st.plotly_chart(chart, width="stretch", config={"displayModeBar": False})
             with map_column:
                 with st.container(border=True):
                     st.caption("GEOTAGGED DEFECT MAP")
                     st.components.v1.html(build_map(record["defects"])._repr_html_(), height=355)
             export_csv, export_json, export_report = st.columns(3)
-            export_csv.download_button("Export inspection register (CSV)", df.to_csv(index=False).encode(), "roadaudit_inspection.csv", "text/csv", use_container_width=True)
-            export_json.download_button("Export complete evidence (JSON)", json.dumps(record, indent=2).encode(), f"roadaudit_inspection_{record['id']}.json", "application/json", use_container_width=True)
-            export_report.download_button("Export shareable report (HTML)", build_html_report(record).encode(), f"roadaudit_report_{record['id']}.html", "text/html", use_container_width=True)
+            export_csv.download_button("Export inspection register (CSV)", df.to_csv(index=False).encode(), "roadaudit_inspection.csv", "text/csv", width="stretch")
+            export_json.download_button("Export complete evidence (JSON)", json.dumps(record, indent=2).encode(), f"roadaudit_inspection_{record['id']}.json", "application/json", width="stretch")
+            export_report.download_button("Export shareable report (HTML)", build_html_report(record).encode(), f"roadaudit_report_{record['id']}.html", "text/html", width="stretch")
 
 with plan_tab:
     section_header("Crew planning", "Build a priority-aware repair route", "Select the crew capacity and depot. NetworkX generates a practical closed route across the highest-value repairs.")
@@ -392,7 +436,7 @@ with plan_tab:
                 depot_a, depot_b = st.columns(2)
                 with depot_a: depot_lat = st.number_input("Depot latitude", value=32.72520, format="%.5f")
                 with depot_b: depot_lon = st.number_input("Depot longitude", value=74.85580, format="%.5f")
-                if st.button("Generate optimized repair plan", type="primary", use_container_width=True):
+                if st.button("Generate optimized repair plan", type="primary", width="stretch"):
                     try:
                         st.session_state["route"] = request_route(active["id"], active["defects"], (depot_lat, depot_lon), maximum)
                     except Exception as error:
@@ -419,7 +463,7 @@ with plan_tab:
             with table_col:
                 with st.container(border=True):
                     st.caption("ORDERED REPAIR STOPS")
-                    st.dataframe(route_df, use_container_width=True, hide_index=True)
+                    st.dataframe(route_df, width="stretch", hide_index=True)
                     st.metric("Total route distance", f"{route['distance_km']:.2f} km")
             with route_col:
                 with st.container(border=True):
@@ -446,22 +490,39 @@ with verify_tab:
                 st.caption("AFTER-REPAIR EVIDENCE")
                 after = st.file_uploader("Upload a matching road image", type=["jpg", "jpeg", "png"], key="after", label_visibility="collapsed")
                 st.caption("Use a similar camera position and field of view for the most meaningful comparison.")
-        if after and st.button("Compare repair evidence", type="primary", use_container_width=True):
+        if after and st.button("Compare repair evidence", type="primary", width="stretch"):
             before = get_inspection(choices[before_label])
             try:
                 with st.spinner("Inspecting post-repair evidence and comparing visible risk..."):
-                    _, after_defects, after_summary, annotated, mode = run_inspection(after, before["traffic_level"], before["road_type"])
-                    outcome = compare_inspections(before["defects"], before["summary"], after_defects, after_summary)
+                    after_id, after_defects, after_summary, annotated, mode = run_inspection(after, before["traffic_level"], before["road_type"])
+                    after_record = get_inspection(after_id)
+                    similarity = fingerprint_similarity(
+                        before.get("evidence_fingerprint"),
+                        after_record.get("evidence_fingerprint") if after_record else None,
+                    )
+                    outcome = compare_inspections(
+                        before["defects"],
+                        before["summary"],
+                        after_defects,
+                        after_summary,
+                        evidence_similarity=similarity,
+                    )
                     verification_id = persist_verification(before["id"], after.name, outcome, after_defects, after_summary)
                 st.markdown(f'<div class="verification-banner">Verification #{verification_id} · {outcome["status"]}</div>', unsafe_allow_html=True)
-                comparison = st.columns(3)
+                comparison = st.columns(4)
                 comparison[0].metric("Before health", f"{before['summary']['road_health_index']}%")
                 comparison[1].metric("After health", f"{after_summary['road_health_index']}%", f"{outcome['health_change']:+d} points")
                 comparison[2].metric("Visible defects", f"{len(before['defects'])} → {len(after_defects)}")
+                comparison[3].metric(
+                    "Same-road confidence",
+                    f"{similarity:.0%}" if similarity is not None else "Unavailable",
+                )
                 st.info(outcome["explanation"])
+                if similarity is None:
+                    st.caption("This before-record predates evidence fingerprinting. New inspections include the automated view-consistency check.")
                 with st.container(border=True):
                     st.caption(f"POST-REPAIR ANNOTATED EVIDENCE · {mode}")
-                    st.image(str(annotated), use_container_width=True)
+                    st.image(str(annotated), width="stretch")
             except Exception as error:
                 st.error(f"Repair verification could not be completed: {error}")
 
@@ -481,24 +542,81 @@ with history_tab:
                 trend.update_traces(line_color="#2563eb", line_width=3, marker=dict(size=8, color="#22d3ee"))
                 trend.update_layout(margin=dict(l=5,r=10,t=10,b=5),height=300,paper_bgcolor="rgba(0,0,0,0)",plot_bgcolor="rgba(0,0,0,0)")
                 trend.update_xaxes(title=None,gridcolor="#edf1f6"); trend.update_yaxes(title="Road health %",range=[0,100],gridcolor="#edf1f6")
-                st.plotly_chart(trend,use_container_width=True,config={"displayModeBar":False})
+                st.plotly_chart(trend,width="stretch",config={"displayModeBar":False})
         with volume_col:
             with st.container(border=True):
                 st.caption("DEFECTS BY INSPECTION")
                 volume = px.bar(history.sort_values("created_at"), x="id", y="unique_defects", color_discrete_sequence=["#0ea5e9"])
                 volume.update_layout(margin=dict(l=5,r=10,t=10,b=5),height=300,paper_bgcolor="rgba(0,0,0,0)",plot_bgcolor="rgba(0,0,0,0)")
                 volume.update_xaxes(title="Inspection ID",gridcolor="#edf1f6"); volume.update_yaxes(title="Unique defects",gridcolor="#edf1f6")
-                st.plotly_chart(volume,use_container_width=True,config={"displayModeBar":False})
+                st.plotly_chart(volume,width="stretch",config={"displayModeBar":False})
         display_history = history.copy()
         display_history["created_at"] = display_history["created_at"].dt.strftime("%d %b %Y · %H:%M")
         display_history = display_history[["id","created_at","source_name","model_mode","road_type","road_health_index","unique_defects","duplicates_removed","urgent_repairs"]]
         display_history.columns = ["ID","Inspected at","Source","Inference mode","Road type","Road health","Unique defects","Duplicates removed","Urgent repairs"]
-        st.dataframe(display_history, use_container_width=True, hide_index=True)
-        st.download_button("Export complete inspection history", history.to_csv(index=False).encode(), "roadaudit_history.csv", "text/csv", use_container_width=True)
+        st.dataframe(display_history, width="stretch", hide_index=True)
+        st.download_button("Export complete inspection history", history.to_csv(index=False).encode(), "roadaudit_history.csv", "text/csv", width="stretch")
+        section_header(
+            "Operations",
+            "Evidence and database controls",
+            "Create a consistent database snapshot, review retained storage, or remove an obsolete decision record.",
+        )
+        system = storage_stats()
+        storage_columns = st.columns(4)
+        storage_columns[0].metric("Database", format_bytes(system["database_bytes"]))
+        storage_columns[1].metric("Evidence files", system["uploads"]["files"], format_bytes(system["uploads"]["bytes"]))
+        storage_columns[2].metric("Generated outputs", system["outputs"]["files"], format_bytes(system["outputs"]["bytes"]))
+        storage_columns[3].metric("Repair checks", system["verifications"])
+        backup_column, lifecycle_column = st.columns(2)
+        with backup_column:
+            with st.container(border=True):
+                st.caption("RECOVERY")
+                st.markdown("**Download a complete SQLite database snapshot**")
+                st.caption("Includes inspection decisions and repair-verification records.")
+                st.download_button(
+                    "Download database backup",
+                    database_backup_bytes(),
+                    "roadaudit_database_backup.db",
+                    "application/vnd.sqlite3",
+                    width="stretch",
+                )
+        with lifecycle_column:
+            with st.container(border=True):
+                st.caption("RECORD LIFECYCLE")
+                delete_choices = {
+                    f"Record #{item['id']} · {item['source_name']}": item["id"]
+                    for item in records
+                }
+                delete_label = st.selectbox("Select an obsolete record", list(delete_choices), key="delete_record")
+                confirm_delete = st.checkbox("I understand linked verification records will also be removed.", key="confirm_delete")
+                if st.button(
+                    "Delete selected decision record",
+                    disabled=not confirm_delete,
+                    width="stretch",
+                ):
+                    if delete_inspection(delete_choices[delete_label]):
+                        st.session_state.pop("latest_id", None)
+                        st.session_state.pop("route", None)
+                        st.success("Decision record removed.")
+                        st.rerun()
+        cleanup = remove_unreferenced_evidence(dry_run=True)
+        with st.expander("Retained-file cleanup"):
+            if cleanup["files"]:
+                st.write(
+                    f"{cleanup['files']} unreferenced upload(s) can be removed to recover "
+                    f"{format_bytes(cleanup['bytes'])}."
+                )
+                cleanup_confirmed = st.checkbox("Remove only uploads and outputs not linked to any saved inspection.", key="cleanup_confirm")
+                if st.button("Clean unreferenced uploads", disabled=not cleanup_confirmed):
+                    result = remove_unreferenced_evidence(dry_run=False)
+                    st.success(f"Removed {result['files']} unreferenced upload(s); recovered {format_bytes(result['bytes'])}.")
+                    st.rerun()
+            else:
+                st.success("No unreferenced uploads detected.")
         verification_records = list_verifications()
         if verification_records:
             section_header("Repair evidence", "Verification history", "Auditable before-and-after checks linked to their original inspection records.")
             verification_history = pd.DataFrame(verification_records)
             verification_history["created_at"] = pd.to_datetime(verification_history["created_at"]).dt.strftime("%d %b %Y · %H:%M")
             verification_history.columns = ["Verification ID","Verified at","Before record","Before source","After source","Status","Health change"]
-            st.dataframe(verification_history, use_container_width=True, hide_index=True)
+            st.dataframe(verification_history, width="stretch", hide_index=True)

@@ -11,8 +11,9 @@ RoadAudit AI is an AI-powered road asset intelligence platform that connects roa
 - Road Health Index, repair budget estimate, charts, and Folium maps
 - CSV, JSON, and self-contained HTML inspection reports
 - Priority-aware closed repair routes using NetworkX
-- Before/after repair-verification records
+- Before/after repair-verification records with same-road visual consistency checks
 - FastAPI JSON services, SQLite persistence, and Streamlit operations dashboard
+- Database backup, storage diagnostics, guarded record deletion, and orphan cleanup
 - Guided demo evidence included under `assets/demo_road.png`
 - Light and dark dashboard themes
 
@@ -44,6 +45,7 @@ powershell -ExecutionPolicy Bypass -File .\run_app.ps1
 - Dashboard: `http://localhost:8501`
 - FastAPI documentation: `http://127.0.0.1:8000/docs`
 - FastAPI health: `http://127.0.0.1:8000/health`
+- FastAPI system diagnostics: `http://127.0.0.1:8000/api/system`
 
 The launcher safely reuses an existing API process or starts one and waits until it is healthy before opening Streamlit.
 
@@ -81,10 +83,13 @@ powershell -ExecutionPolicy Bypass -File .\run_checks.ps1
 
 The checks compile the application, run unit/API/integration tests, and execute a Streamlit rendering smoke test. GitHub Actions repeats the portable checks on every push and pull request.
 
+The current suite covers product logic, evidence fingerprinting, repair mismatch handling, storage metadata, backup integrity, API contracts, and the complete guided-demo inspection flow.
+
 ## Prototype disclosures
 
 - GPS positions, traffic, road importance, and costs are simulated planning inputs.
 - Visual repair verification supports review; it does not replace engineering sign-off.
+- Same-road confidence is a perceptual view-consistency signal, not proof that two captures have identical GPS coordinates.
 - The fallback adapter is labelled in the UI and must not be presented as trained-model output.
 
 ## Demo video
@@ -100,8 +105,9 @@ ai/detector.py             Cached YOLO adapter and transparent demo fallback
 utils/analytics.py         Severity, priority, Road Health Index, DBSCAN
 utils/route_planner.py     NetworkX route approximation
 utils/reporting.py         Portable inspection report export
-utils/verification.py      Before/after comparison policy
-utils/storage.py           SQLite evidence store
+utils/evidence.py          Image/video fingerprints and view similarity
+utils/verification.py      Before/after comparison and mismatch policy
+utils/storage.py           SQLite evidence store, backup, and lifecycle controls
 assets/demo_road.png       Guided-demo inspection evidence
 tests/                     Unit, API, and end-to-end guided-demo tests
 docs/                      Demo and completion documentation

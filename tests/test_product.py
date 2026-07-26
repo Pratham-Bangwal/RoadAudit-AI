@@ -1,10 +1,17 @@
 import unittest
 import io
+from pathlib import Path
+import tempfile
+
+import cv2
+import numpy as np
 
 from utils.analytics import build_summary, enrich_detections, remove_duplicates, severity_from_bbox
+from utils.evidence import evidence_fingerprint, fingerprint_similarity
 from utils.route_planner import plan_route
 from utils.verification import compare_inspections
 from utils.reporting import build_html_report
+from utils.storage import create_inspection, database_backup_bytes, delete_inspection, get_inspection
 from backend.api import app
 from fastapi.testclient import TestClient
 
@@ -63,11 +70,60 @@ class ProductLogicTests(unittest.TestCase):
         result = compare_inspections(before, before_summary, [], after_summary)
         self.assertEqual(result["status"], "Repair likely completed")
 
+    def test_repair_verification_rejects_mismatched_evidence(self):
+        before = remove_duplicates(enrich_detections(self.raw, 70, "Main road"))
+        before_summary = build_summary(before)
+        result = compare_inspections(before, before_summary, [], build_summary([]), evidence_similarity=.1)
+        self.assertEqual(result["status"], "Evidence mismatch / manual review")
+        self.assertEqual(result["evidence_similarity"], .1)
+
+    def test_perceptual_evidence_fingerprint(self):
+        with tempfile.TemporaryDirectory() as folder:
+            first = Path(folder) / "first.png"
+            copy = Path(folder) / "copy.png"
+            different = Path(folder) / "different.png"
+            horizontal = np.tile(np.arange(256, dtype=np.uint8), (256, 1))
+            vertical = horizontal.T
+            cv2.imwrite(str(first), horizontal)
+            cv2.imwrite(str(copy), horizontal)
+            cv2.imwrite(str(different), vertical)
+            first_hash = evidence_fingerprint(first)
+            self.assertEqual(fingerprint_similarity(first_hash, evidence_fingerprint(copy)), 1.0)
+            self.assertLess(fingerprint_similarity(first_hash, evidence_fingerprint(different)), .8)
+
+    def test_storage_preserves_evidence_metadata_and_backup(self):
+        inspection_id = create_inspection(
+            "metadata-test.png",
+            False,
+            "test",
+            70,
+            "Main road",
+            [],
+            build_summary([]),
+            source_path="uploads/metadata-test.png",
+            evidence_fingerprint="00",
+            annotated_path="outputs/metadata-test.png",
+        )
+        try:
+            record = get_inspection(inspection_id)
+            self.assertEqual(record["evidence_fingerprint"], "00")
+            self.assertTrue(record["source_path"].endswith("metadata-test.png"))
+            self.assertGreater(len(database_backup_bytes()), 100)
+        finally:
+            self.assertTrue(delete_inspection(inspection_id))
+
     def test_fastapi_health_and_json_contract(self):
         client = TestClient(app)
         response = client.get("/health")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["status"], "ok")
+        self.assertIn("uploads", response.json())
+        system = client.get("/api/system")
+        self.assertEqual(system.status_code, 200)
+        self.assertIn("database_bytes", system.json())
+        backup = client.get("/api/backup")
+        self.assertEqual(backup.status_code, 200)
+        self.assertGreater(len(backup.content), 100)
 
     def test_fastapi_rejects_invalid_uploads_and_context(self):
         client = TestClient(app)
@@ -82,6 +138,8 @@ class ProductLogicTests(unittest.TestCase):
         self.assertEqual(missing_route.status_code, 404)
         missing_verification = client.post("/api/verifications", json={"before_inspection_id": 999999, "after_source_name": "after.jpg", "outcome": {"status": "test"}, "after_defects": [], "after_summary": {}})
         self.assertEqual(missing_verification.status_code, 404)
+        missing_delete = client.delete("/api/inspections/999999")
+        self.assertEqual(missing_delete.status_code, 404)
 
     def test_html_report_escapes_untrusted_source_names(self):
         record = {"id": 1, "source_name": "<script>alert(1)</script>.jpg", "created_at": "2026-01-01", "summary": {"road_health_index": 90, "health_label": "Excellent", "unique_defects": 0, "raw_detections": 0, "urgent_repairs": 0, "estimated_cost": 0}, "defects": []}

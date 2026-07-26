@@ -3,8 +3,12 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 import sqlite3
+import tempfile
 
 DB_PATH = Path(__file__).resolve().parents[1] / "database" / "roadaudit.db"
+ROOT = DB_PATH.parents[1]
+UPLOADS_PATH = ROOT / "uploads"
+OUTPUTS_PATH = ROOT / "outputs"
 
 
 def utc_now():
@@ -33,6 +37,13 @@ def initialize_database():
             defects_json TEXT NOT NULL,
             summary_json TEXT NOT NULL
         )""")
+        columns = {row["name"] for row in database.execute("PRAGMA table_info(inspections)")}
+        if "source_path" not in columns:
+            database.execute("ALTER TABLE inspections ADD COLUMN source_path TEXT")
+        if "evidence_fingerprint" not in columns:
+            database.execute("ALTER TABLE inspections ADD COLUMN evidence_fingerprint TEXT")
+        if "annotated_path" not in columns:
+            database.execute("ALTER TABLE inspections ADD COLUMN annotated_path TEXT")
         database.execute("""CREATE TABLE IF NOT EXISTS verifications (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             created_at TEXT NOT NULL,
@@ -47,11 +58,36 @@ def initialize_database():
         database.execute("CREATE INDEX IF NOT EXISTS idx_verifications_before ON verifications(before_inspection_id)")
 
 
-def create_inspection(name, is_video, mode, traffic, road_type, defects, summary):
+def create_inspection(
+    name,
+    is_video,
+    mode,
+    traffic,
+    road_type,
+    defects,
+    summary,
+    source_path=None,
+    evidence_fingerprint=None,
+    annotated_path=None,
+):
     with connect() as database:
         cursor = database.execute(
-            "INSERT INTO inspections (created_at,source_name,is_video,model_mode,traffic_level,road_type,defects_json,summary_json) VALUES (?,?,?,?,?,?,?,?)",
-            (utc_now(), name, int(is_video), mode, traffic, road_type, json.dumps(defects), json.dumps(summary)),
+            """INSERT INTO inspections
+            (created_at,source_name,is_video,model_mode,traffic_level,road_type,defects_json,summary_json,source_path,evidence_fingerprint,annotated_path)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                utc_now(),
+                name,
+                int(is_video),
+                mode,
+                traffic,
+                road_type,
+                json.dumps(defects),
+                json.dumps(summary),
+                str(source_path) if source_path else None,
+                evidence_fingerprint,
+                str(annotated_path) if annotated_path else None,
+            ),
         )
         return cursor.lastrowid
 
@@ -110,3 +146,80 @@ def database_stats():
         inspections = database.execute("SELECT COUNT(*) FROM inspections WHERE model_mode <> 'test'").fetchone()[0]
         verifications = database.execute("SELECT COUNT(*) FROM verifications").fetchone()[0]
     return {"inspections": inspections, "verifications": verifications}
+
+
+def delete_inspection(inspection_id):
+    """Delete one decision record; linked verification rows cascade safely."""
+    with connect() as database:
+        cursor = database.execute("DELETE FROM inspections WHERE id=?", (inspection_id,))
+        return cursor.rowcount > 0
+
+
+def database_backup_bytes():
+    """Return a consistent, downloadable SQLite snapshot."""
+    initialize_database()
+    handle = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    snapshot_path = Path(handle.name)
+    handle.close()
+    try:
+        source = connect()
+        destination = sqlite3.connect(snapshot_path)
+        try:
+            source.backup(destination)
+        finally:
+            destination.close()
+            source.close()
+        return snapshot_path.read_bytes()
+    finally:
+        snapshot_path.unlink(missing_ok=True)
+
+
+def _folder_stats(path):
+    files = [item for item in path.glob("*") if item.is_file() and item.name != ".gitkeep"]
+    return {"files": len(files), "bytes": sum(item.stat().st_size for item in files)}
+
+
+def storage_stats():
+    """Return bounded operational health metrics for retained evidence."""
+    initialize_database()
+    return {
+        **database_stats(),
+        "database_bytes": DB_PATH.stat().st_size if DB_PATH.exists() else 0,
+        "uploads": _folder_stats(UPLOADS_PATH),
+        "outputs": _folder_stats(OUTPUTS_PATH),
+    }
+
+
+def remove_unreferenced_evidence(dry_run=True):
+    """Find or remove retained uploads and outputs not linked to an inspection."""
+    initialize_database()
+    with connect() as database:
+        referenced = set()
+        for row in database.execute(
+            "SELECT source_path, annotated_path FROM inspections"
+        ).fetchall():
+            referenced.update(
+                str(Path(value).resolve())
+                for value in row
+                if value
+            )
+    candidates = [
+        item
+        for item in UPLOADS_PATH.glob("*")
+        if item.is_file()
+        and item.name != ".gitkeep"
+        and str(item.resolve()) not in referenced
+    ]
+    runtime_output_prefixes = ("annotated_", "demo_annotated_", "preview_")
+    candidates.extend(
+        item
+        for item in OUTPUTS_PATH.glob("*")
+        if item.is_file()
+        and item.name.startswith(runtime_output_prefixes)
+        and str(item.resolve()) not in referenced
+    )
+    reclaimed = sum(item.stat().st_size for item in candidates)
+    if not dry_run:
+        for item in candidates:
+            item.unlink(missing_ok=True)
+    return {"files": len(candidates), "bytes": reclaimed, "removed": not dry_run}
