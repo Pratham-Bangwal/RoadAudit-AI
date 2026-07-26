@@ -12,6 +12,7 @@ from ai.detector import MODEL_PATH, inspect_media
 from utils.analytics import build_summary, enrich_detections, remove_duplicates
 from utils.map_view import build_map, build_route_map
 from utils.route_planner import plan_route
+from utils.reporting import build_html_report
 from utils.storage import create_inspection, get_inspection, initialize_database, list_inspections, list_verifications, save_verification
 from utils.verification import compare_inspections
 
@@ -372,9 +373,10 @@ with inspect_tab:
                 with st.container(border=True):
                     st.caption("GEOTAGGED DEFECT MAP")
                     st.components.v1.html(build_map(record["defects"])._repr_html_(), height=355)
-            export_csv, export_json = st.columns(2)
+            export_csv, export_json, export_report = st.columns(3)
             export_csv.download_button("Export inspection register (CSV)", df.to_csv(index=False).encode(), "roadaudit_inspection.csv", "text/csv", use_container_width=True)
             export_json.download_button("Export complete evidence (JSON)", json.dumps(record, indent=2).encode(), f"roadaudit_inspection_{record['id']}.json", "application/json", use_container_width=True)
+            export_report.download_button("Export shareable report (HTML)", build_html_report(record).encode(), f"roadaudit_report_{record['id']}.html", "text/html", use_container_width=True)
 
 with plan_tab:
     section_header("Crew planning", "Build a priority-aware repair route", "Select the crew capacity and depot. NetworkX generates a practical closed route across the highest-value repairs.")

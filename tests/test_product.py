@@ -4,6 +4,7 @@ import io
 from utils.analytics import build_summary, enrich_detections, remove_duplicates, severity_from_bbox
 from utils.route_planner import plan_route
 from utils.verification import compare_inspections
+from utils.reporting import build_html_report
 from backend.api import app
 from fastapi.testclient import TestClient
 
@@ -81,6 +82,12 @@ class ProductLogicTests(unittest.TestCase):
         self.assertEqual(missing_route.status_code, 404)
         missing_verification = client.post("/api/verifications", json={"before_inspection_id": 999999, "after_source_name": "after.jpg", "outcome": {"status": "test"}, "after_defects": [], "after_summary": {}})
         self.assertEqual(missing_verification.status_code, 404)
+
+    def test_html_report_escapes_untrusted_source_names(self):
+        record = {"id": 1, "source_name": "<script>alert(1)</script>.jpg", "created_at": "2026-01-01", "summary": {"road_health_index": 90, "health_label": "Excellent", "unique_defects": 0, "raw_detections": 0, "urgent_repairs": 0, "estimated_cost": 0}, "defects": []}
+        report = build_html_report(record)
+        self.assertNotIn("<script>alert", report)
+        self.assertIn("&lt;script&gt;", report)
 
 
 if __name__ == "__main__":

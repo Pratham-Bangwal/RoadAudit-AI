@@ -9,6 +9,7 @@ RoadAudit AI is an AI-powered road asset intelligence platform that connects roa
 - Type-safe GPS deduplication using haversine DBSCAN clustering
 - Explainable repair priority scoring with repeat-observation evidence
 - Road Health Index, repair budget estimate, charts, and Folium maps
+- CSV, JSON, and self-contained HTML inspection reports
 - Priority-aware closed repair routes using NetworkX
 - Before/after repair-verification records
 - FastAPI JSON services, SQLite persistence, and Streamlit operations dashboard
@@ -98,6 +99,7 @@ backend/api.py             FastAPI upload, history, routing, and verification AP
 ai/detector.py             Cached YOLO adapter and transparent demo fallback
 utils/analytics.py         Severity, priority, Road Health Index, DBSCAN
 utils/route_planner.py     NetworkX route approximation
+utils/reporting.py         Portable inspection report export
 utils/verification.py      Before/after comparison policy
 utils/storage.py           SQLite evidence store
 assets/demo_road.png       Guided-demo inspection evidence

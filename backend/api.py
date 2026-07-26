@@ -5,11 +5,13 @@ import logging
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
 from ai.detector import inspect_media
 from utils.analytics import build_summary, enrich_detections, remove_duplicates
 from utils.route_planner import plan_route
+from utils.reporting import build_html_report
 from utils.storage import database_stats, create_inspection, get_inspection, initialize_database, list_inspections, list_verifications, save_verification
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -92,6 +94,11 @@ def inspection(inspection_id: int):
 @app.get("/api/inspections/{inspection_id}/json")
 def inspection_json(inspection_id: int):
     return inspection(inspection_id)
+
+
+@app.get("/api/inspections/{inspection_id}/report", response_class=HTMLResponse)
+def inspection_report(inspection_id: int):
+    return build_html_report(inspection(inspection_id))
 
 
 @app.get("/api/verifications")
