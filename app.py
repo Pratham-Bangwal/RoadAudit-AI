@@ -71,13 +71,13 @@ def format_bytes(value):
         value /= 1024
 
 
-def run_inspection(uploaded_file, traffic, road_type):
+def run_inspection(uploaded_file, traffic, road_type, demo=False):
     payload = uploaded_file.getvalue()
     try:
         response = requests.post(
             f"{API_URL}/api/inspect",
             files={"file": (uploaded_file.name, payload, uploaded_file.type or "application/octet-stream")},
-            data={"traffic_level": traffic, "road_type": road_type},
+            data={"traffic_level": traffic, "road_type": road_type, "demo": str(demo).lower()},
             timeout=180,
         )
         response.raise_for_status()
@@ -91,7 +91,7 @@ def run_inspection(uploaded_file, traffic, road_type):
         raise RuntimeError(detail) from error
     except (requests.ConnectionError, requests.Timeout):
         path = save_upload(uploaded_file)
-        raw, annotated, mode = inspect_media(path)
+        raw, annotated, mode = inspect_media(path, demo=demo)
         defects = remove_duplicates(enrich_detections(raw, traffic, road_type))
         summary = build_summary(defects)
         inspection_id = create_inspection(
@@ -340,7 +340,7 @@ with inspect_tab:
                 try:
                     with st.spinner("Loading the guided road sample..."):
                         demo_upload = ProjectUpload(DEMO_IMAGE)
-                        inspection_id, defects, summary, annotated, mode = run_inspection(demo_upload, traffic_level, road_type)
+                        inspection_id, defects, summary, annotated, mode = run_inspection(demo_upload, traffic_level, road_type, demo=True)
                     st.session_state.update(latest_id=inspection_id, latest_annotated=str(annotated))
                     st.success(f"Guided inspection #{inspection_id} ready")
                 except Exception as error:

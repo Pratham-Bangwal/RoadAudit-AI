@@ -64,7 +64,7 @@ def system_status():
 
 
 @app.post("/api/inspect")
-async def inspect_road(file: UploadFile = File(...), traffic_level: int = Form(default=70, ge=0, le=100), road_type: str = Form(default="Main road")):
+async def inspect_road(file: UploadFile = File(...), traffic_level: int = Form(default=70, ge=0, le=100), road_type: str = Form(default="Main road"), demo: bool = Form(default=False)):
     suffix = Path(file.filename or "").suffix.lower()
     if suffix not in ALLOWED_SUFFIXES:
         raise HTTPException(status_code=415, detail="Unsupported image or video format.")
@@ -79,7 +79,7 @@ async def inspect_road(file: UploadFile = File(...), traffic_level: int = Form(d
                 if total_bytes > MAX_UPLOAD_BYTES:
                     raise HTTPException(status_code=413, detail="Upload exceeds the 100 MB prototype limit.")
                 output.write(chunk)
-        raw, annotated, model_mode = inspect_media(destination)
+        raw, annotated, model_mode = inspect_media(destination, demo=demo)
         defects = remove_duplicates(enrich_detections(raw, traffic_level, road_type))
         summary = build_summary(defects)
         fingerprint = evidence_fingerprint(destination)
