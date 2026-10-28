@@ -9,3 +9,11 @@ outputs/*
 work/
 models/*.pt
 !.gitkeep
+!models/road_damage.pt
+model-pipeline/dataset/
+model-pipeline/runs/
+model-pipeline/outputs/
+model-pipeline/yolo11n.pt
+demo-dashboard/node_modules/
+demo-dashboard/.next/
+demo-dashboard/next-env.d.ts

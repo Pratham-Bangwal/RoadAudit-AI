@@ -110,11 +110,13 @@ def _demo_video(video_path):
     return expanded, annotated
 
 
-def inspect_media(path):
+def inspect_media(path, demo=False):
     is_video = path.suffix.lower() in {".mp4", ".avi", ".mov"}
-    if is_video and MODEL_PATH.exists(): detections, output = _real_video(path)
+    if demo and is_video: detections, output = _demo_video(path)
+    elif demo: detections, output = _demo_image(path)
+    elif is_video and MODEL_PATH.exists(): detections, output = _real_video(path)
     elif is_video: detections, output = _demo_video(path)
     elif MODEL_PATH.exists(): detections, output = _real_image(path)
     else: detections, output = _demo_image(path)
-    mode = "YOLO model" if MODEL_PATH.exists() else "demo fallback (add models/road_damage.pt for live YOLO)"
+    mode = "guided sample (synthetic detections)" if demo else ("YOLO model" if MODEL_PATH.exists() else "demo fallback (add models/road_damage.pt for live YOLO)")
     return detections, output, mode

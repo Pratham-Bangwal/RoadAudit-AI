@@ -15,6 +15,8 @@ RoadAudit AI is an AI-powered road asset intelligence platform that connects roa
 - FastAPI JSON services, SQLite persistence, and Streamlit operations dashboard
 - Database backup, storage diagnostics, guarded record deletion, and orphan cleanup
 - Guided demo evidence included under `assets/demo_road.png`
+- Trained YOLO checkpoint and reproducible training/inference scripts from the final handoff
+- A separate presentation dashboard with clearly labelled sample data
 - Light and dark dashboard themes
 
 ## Architecture
@@ -51,17 +53,25 @@ The launcher safely reuses an existing API process or starts one and waits until
 
 ## Guided demo
 
-Open **Inspect Road** and select **Run guided sample inspection**. This uses a bundled, license-safe road image and the visibly labelled demo adapter when trained weights are unavailable.
+Open **Inspect Road** and select **Run guided sample inspection**. This uses a bundled road image and visibly labelled synthetic detections, even when trained weights are available. Uploaded images and videos use the trained checkpoint.
 
 ## Enable trained YOLO inference
 
-Place the teammate's trained Ultralytics model here:
+The final handoff's later trained Ultralytics checkpoint is included here:
 
 ```text
 models/road_damage.pt
 ```
 
-No code changes are required. Image inference runs immediately; video inference samples up to 24 frames and deduplicates repeated observations.
+Image inference uses this checkpoint; video inference samples up to 24 frames and deduplicates repeated observations. The original earlier MVP checkpoint is retained at `model-pipeline/model/best.pt` for comparison. See [model-pipeline/README.md](model-pipeline/README.md) for training and command-line inference.
+
+## Presentation dashboard
+
+The handoff's separate Next.js interface is in `demo-dashboard/`. It displays a fixed sample inspection and is useful for presentation and design reference. It does not call the live FastAPI service or accept live uploads. The Streamlit app above is the operational interface. See [demo-dashboard/README.md](demo-dashboard/README.md) for its run command.
+
+## Consolidation provenance
+
+This repository combines the existing RoadAudit AI application with the distinct model and presentation work from [RoadAudit-AI-Final-Handoff](https://github.com/Pratham-Bangwal/RoadAudit-AI-Final-Handoff), at commit `763aa6a`. Generated inference outputs, repeated videos, training logs, and unused hosting starter files were left out. The original repositories and their commit histories remain available.
 
 ## Priority methodology
 

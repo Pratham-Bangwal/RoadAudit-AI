@@ -18,9 +18,10 @@ class GuidedDemoIntegrationTest(unittest.TestCase):
         annotated_path = None
         try:
             with demo_path.open("rb") as image:
-                response = client.post("/api/inspect", files={"file": ("automated-guided-demo.png", image, "image/png")}, data={"traffic_level": 70, "road_type": "Main road"})
+                response = client.post("/api/inspect", files={"file": ("automated-guided-demo.png", image, "image/png")}, data={"traffic_level": 70, "road_type": "Main road", "demo": "true"})
             self.assertEqual(response.status_code, 200, response.text)
             payload = response.json()
+            self.assertEqual(payload["model_mode"], "guided sample (synthetic detections)")
             inspection_id = payload["inspection_id"]
             record = get_inspection(inspection_id)
             source_path = Path(record["source_path"])
